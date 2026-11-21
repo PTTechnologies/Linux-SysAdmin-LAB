@@ -1,1 +1,221 @@
+Phase 1 — Configure NGINX; Configure NGINX to receive client requests and forward them to backend application services.
+
+NGINX performs the following functions in this lab:
+Listens for incoming HTTP requests.
+Acts as the public-facing web entry point.
+Forwards requests to backend application instances.
+Distributes requests across the available application containers.
+Adds forwarding headers containing client and request information.
+____________________________________________________________________________________________________________
+____________________________________________________________________________________________________________
+
+The NGINX configuration is located at:
+nginx/default.conf
+
+The upstream block defines the three backend application instances:
+
+upstream ccgiant_apps {
+
+    server app1:3000 max_fails=2 fail_timeout=10s;
+
+    server app2:3000 max_fails=2 fail_timeout=10s;
+
+    server app3:3000 max_fails=2 fail_timeout=10s;
+
+    keepalive 16;
+}
+
+Important terminology:
+upstream: Defines a group of backend servers.
+server: Identifies an application endpoint.
+max_fails: Sets the failure threshold used by NGINX's passive failure tracking.
+fail_timeout: Defines the failure tracking and temporary unavailability period.
+keepalive: Allows reusable connections to upstream servers.
+NGINX uses round-robin distribution by default when no alternative balancing method is specified.
+______________________________________________________________________________________________________________
+______________________________________________________________________________________________________________ 
+
+Reverse proxy configuration;
+
+server {
+
+    listen 80;
+
+    server_name _;
+
+    location / {
+
+        proxy_pass http://ccgiant_apps;
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Connection "";
+
+        proxy_set_header Host $host;
+
+        proxy_set_header X-Real-IP $remote_addr;
+
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 5s;
+
+        proxy_read_timeout 30s;
+
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+
+        add_header X-Upstream $upstream_addr always;
+    }
+}
+______________________________________________________________________________________________________________
+_______________________________________________________________________________________________________________ 
+
+Important directives;
+
+listen 80------------------------NGINX listens on port 80 inside its container
+server_name _  ------------------Default catch-all server name
+location /  ---------------------Matches requests to the root URL and its paths
+proxy_pass ----------------------Forwards requests to the upstream group
+proxy_set_header ----------------Passes request information to backend applications
+proxy_connect_timeout -----------Sets the upstream connection timeout
+proxy_read_timeout --------------Sets the upstream response-read timeout
+proxy_next_upstream -------------Defines conditions under which NGINX can retry another upstream
+add_header ----------------------Adds the selected upstream address to the response
+
+Operational note: NGINX passive failure tracking is not equivalent to a complete active health-check system.
+Docker Compose separately monitors the application containers through their health checks.
+
+___________________________________________________________________________________________________________
+___________________________________________________________________________________________________________
+
+Phase 2 — Prepare the Node.js Application
+- Verify the dependency 
+- Application server; The server.js file runs the Express application.
+
+Important configuration:
+
+const express = require('express');
+
+const app = express();
+
+const PORT = Number(process.env.PORT || 3000);
+
+const HOST = process.env.HOST || '0.0.0.0';
+
+The application serves its frontend from the public directory:
+
+app.use(express.static(publicDirectory, {
+    extensions: ['html'],
+    index: 'index.html'
+}));
+
+Health endpoint
+
+app.get('/health', (_req, res) => {
+
+    res.status(200).json({
+        status: 'ok',
+        application: 'cac portfolio'
+    });
+
+});
+____________________________________________________________________________________________________________
+
+Phase 3 — Build the Docker Image
+
+Create a reusable Docker image containing the Node.js application and its production dependencies.
+
+Dockerfile
+
+FROM node:22-bookworm-slim
+
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3000
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm install --omit=dev --no-audit --no-fund
+
+COPY --chown=node:node server.js ./server.js
+
+COPY --chown=node:node public ./public
+
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+
+CMD ["node", "server.js"]
+______________________________________________________________________________________________________________
+
+Phase 4 — Deploy Three Application Instances;
+Use Docker Compose to deploy three containers running the same application image.
+
+see:  compose.yaml file 
+_____________________________________________________________________________________________________________
+
+Phase 5 — Test the Application
+
+**** Access the application==== From Ubuntu Server:-------http://localhost:8080
+
+**** Test the HTTP response: -----------------------------curl -I http://localhost:8080
+Expected result:---------------------------HTTP/1.1 200 OK
+
+**** Test the health endpoint-----------------curl http://localhost:8080/health
+Expected response:
+
+{
+  "status": "ok",
+  "application": "cac portfolio"
+}
+
+Test each application instance individually
+Run:
+
+for service in app1 app2 app3; do
+
+  echo "--- $service ---"
+
+  docker compose exec -T "$service" node -e \
+  "fetch('http://127.0.0.1:3000/health').then(async r => { console.log(r.status, await r.text()); process.exit(r.ok ? 0 : 1) }).catch(e => { console.error(e); process.exit(1) })"
+
+done
+
+This checks the health endpoint inside each container.
+____________________________________________________________________________________________________________
+Phase 6 — Demonstrate Load Balancing
+
+Verify that NGINX distributes requests across the three application containers.
+The NGINX configuration adds an X-Upstream response header.
+This header identifies the upstream address selected for the request.
+Generate multiple requests
+
+for i in $(seq 1 9); do
+
+  curl -sI http://localhost:8080/ | grep -i X-Upstream
+
+done
+
+Expected behavior:
+The upstream container addresses should rotate across the three application instances while they are healthy.
+
+Inspect logs
+docker compose logs         --tail=100 nginx app1 app2 app3
+Follow logs in real time:    docker compose logs -f
+
+Important observation
+The Application is identical regardless of which instance serves it.
+
+_________________________________________________________________________________________________________________________________________
+
+Phase 7 — Docker Administration .
+
+=====END-1/1.
+
 
