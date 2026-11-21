@@ -35,7 +35,7 @@ NGINX uses round-robin distribution by default when no alternative balancing met
 ______________________________________________________________________________________________________________
 ______________________________________________________________________________________________________________ 
 
-Reverse proxy configuration;
+-Reverse proxy configuration;
 
 server {
 
@@ -153,12 +153,14 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 CMD ["node", "server.js"]
 ______________________________________________________________________________________________________________
+______________________________________________________________________________________________________________
 
 Phase 4 — Deploy Three Application Instances;
 Use Docker Compose to deploy three containers running the same application image.
 
 see:  compose.yaml file 
 _____________________________________________________________________________________________________________
+______________________________________________________________________________________________________________
 
 Phase 5 — Test the Application
 
@@ -194,7 +196,8 @@ Phase 6 — Demonstrate Load Balancing
 Verify that NGINX distributes requests across the three application containers.
 The NGINX configuration adds an X-Upstream response header.
 This header identifies the upstream address selected for the request.
-Generate multiple requests
+
+-Generate multiple requests
 
 for i in $(seq 1 9); do
 
@@ -202,10 +205,10 @@ for i in $(seq 1 9); do
 
 done
 
-Expected behavior:
+-Expected behavior:
 The upstream container addresses should rotate across the three application instances while they are healthy.
 
-Inspect logs
+-Inspect logs
 docker compose logs         --tail=100 nginx app1 app2 app3
 Follow logs in real time:    docker compose logs -f
 
@@ -213,7 +216,7 @@ Important observation
 The Application is identical regardless of which instance serves it.
 
 _________________________________________________________________________________________________________________________________________
-
+_______________________________________________________________________________________________________________________
 Phase 7 — Docker Administration .
 
 =====END-1/1.
